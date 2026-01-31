@@ -1,27 +1,28 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Zone Domination | Misión Galáctica</title>
+    <!-- Tailwind CSS para el diseño -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React y ReactDOM vía UMD -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel para transformar JSX en el navegador -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&display=swap');
       
-      :root {
-        --primary-glow: rgba(79, 70, 229, 0.4);
-      }
-
       body {
         font-family: 'Fredoka', sans-serif;
         background: #020617;
         color: #f8fafc;
         overflow-x: hidden;
         user-select: none;
-      }
-
-      .perspective-1000 {
-        perspective: 1500px;
+        margin: 0;
       }
 
       .custom-scrollbar::-webkit-scrollbar {
@@ -36,13 +37,17 @@
       }
 
       @keyframes floatJuice {
-        0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-        20% { opacity: 1; transform: translate(-50%, -60%) scale(1.1); }
-        100% { transform: translate(-50%, -150%) scale(1.5); opacity: 0; }
+        0% { transform: translate(-50%, -50%) scale(0.6) rotate(0deg); opacity: 0; }
+        15% { transform: translate(-50%, -60%) scale(1.2) rotate(-5deg); opacity: 1; }
+        100% { transform: translate(-80vw, -80vh) scale(1.5) rotate(15deg); opacity: 0; }
       }
 
-      .animate-float-juice {
-        animation: floatJuice 2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+      .animate-juice {
+        animation: floatJuice 2.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+      }
+
+      .perspective-1000 {
+        perspective: 1500px;
       }
 
       .glass-card {
@@ -50,40 +55,21 @@
         backdrop-filter: blur(12px);
         border: 1px solid rgba(255, 255, 255, 0.1);
       }
-
-      .board-container {
-        transform: rotateX(20deg) rotateZ(0deg);
-        transition: transform 0.5s ease-out;
-      }
     </style>
-    <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@19.2.4",
-    "react-dom": "https://esm.sh/react-dom@19.2.4",
-    "react-dom/client": "https://esm.sh/react-dom@19.2.4/client",
-    "@google/genai": "https://esm.sh/@google/genai@1.38.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "react/": "https://esm.sh/react@^19.2.4/"
-  }
-}
-</script>
 <link rel="stylesheet" href="/index.css">
 </head>
 <body class="bg-slate-950">
     <div id="root"></div>
 
-    <script type="module">
-        import React, { useState, useEffect, useRef, useMemo } from 'react';
-        import { createRoot } from 'react-dom/client';
-        import { GoogleGenAI, Type } from "@google/genai";
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
 
-        // --- CONSTANTS & TYPES ---
+        // --- CONSTANTES ---
         const TOTAL_TILES = 48;
         const SUBJECTS = ['Matemáticas', 'Ciencias', 'Historia', 'Lenguaje', 'Geografía', 'Astronomía'];
         const PLAYER_COLORS = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
         const AVATARS = ['🚀', '🤖', '👾', '🧬', '🧠', '🧙', '🦖', '🌟'];
-        const SAVE_KEY_PREFIX = 'zd_save_single_';
+        const SAVE_KEY_PREFIX = 'zd_save_traditional_';
 
         const TileType = {
             SUBJECT: 'SUBJECT',
@@ -93,9 +79,9 @@
         };
 
         const ZoneType = {
-            CRITICAL_THINKING: 'Pensamiento Crítico',
-            MEMORY: 'Memoria',
-            CREATIVITY: 'Creatividad',
+            CRITICAL_THINKING: 'Critical Thinking',
+            MEMORY: 'Memory',
+            CREATIVITY: 'Creativity',
             MOTOR: 'Motor'
         };
 
@@ -114,89 +100,69 @@
             return { type: TileType.EMPTY, label: '' };
         });
 
-        // --- GEMINI SERVICE ---
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
+        // --- GEMINI SERVICE (FETCH VERSION) ---
         const gemini = {
+            async call(prompt, config = {}) {
+                const apiKey = process.env.API_KEY;
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+                
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        temperature: 1,
+                        topP: 0.95,
+                        topK: 64,
+                        ...config
+                    }
+                };
+
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await response.json();
+                    return data.candidates[0].content.parts[0].text;
+                } catch (error) {
+                    console.error("Gemini Error:", error);
+                    return null;
+                }
+            },
+
             async fetchCommentary(playerName, lastRoll, event = null) {
                 const prompt = event 
-                    ? `El jugador ${playerName} tuvo este evento: ${event}. Haz un comentario breve (máximo 10 palabras), divertido y espacial.`
-                    : `El jugador ${playerName} sacó un ${lastRoll}. Haz un comentario breve (máximo 10 palabras) sarcástico o motivador espacial.`;
-                try {
-                    const res = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
-                    return res.text?.trim() || "¡Buen viaje!";
-                } catch { return "¡A la velocidad de la luz!"; }
+                    ? `El jugador ${playerName} tuvo este evento: ${event}. Haz un comentario breve (máximo 12 palabras), divertido y con temática espacial.`
+                    : `El jugador ${playerName} sacó un ${lastRoll} en los dados. Haz un comentario breve (máximo 12 palabras), sarcástico o motivador espacial.`;
+                const res = await this.call(prompt);
+                return res?.trim() || "¡A la velocidad de la luz!";
             },
+
             async fetchQuestion(subject) {
-                try {
-                    const res = await ai.models.generateContent({
-                        model: 'gemini-3-flash-preview',
-                        contents: `Genera una pregunta académica fácil para secundaria sobre: ${subject}. Respuesta de una palabra. En español.`,
-                        config: {
-                            responseMimeType: "application/json",
-                            responseSchema: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    subject: { type: Type.STRING },
-                                    question: { type: Type.STRING },
-                                    answer: { type: Type.STRING },
-                                },
-                                required: ["subject", "question", "answer"],
-                            },
-                        },
-                    });
-                    return JSON.parse(res.text.trim());
-                } catch {
-                    return { subject, question: "¿Cuál es el planeta rojo?", answer: "Marte" };
-                }
+                const prompt = `Genera una pregunta académica extremadamente fácil para nivel secundaria sobre: ${subject}. La respuesta debe ser de una sola palabra o número. Responde en formato JSON puro: {"subject": "${subject}", "question": "...", "answer": "..."}`;
+                const res = await this.call(prompt, { responseMimeType: "application/json" });
+                try { return JSON.parse(res); } 
+                catch { return { subject, question: "¿Cuál es el planeta rojo?", answer: "Marte" }; }
             },
+
             async fetchExplanation(q, a) {
-                const prompt = `Pregunta: "${q}". Respuesta: "${a}". Explica por qué muy breve (máximo 15 palabras). Español.`;
-                try {
-                    const res = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
-                    return res.text?.trim() || `La respuesta es ${a}.`;
-                } catch { return "¡Correcto!"; }
+                const prompt = `Pregunta: "${q}". Respuesta: "${a}". Explica por qué es correcto muy breve (máximo 15 palabras). En español.`;
+                const res = await this.call(prompt);
+                return res?.trim() || `La respuesta es ${a}.`;
             },
+
             async fetchMysteryEvent() {
-                try {
-                    const res = await ai.models.generateContent({
-                        model: 'gemini-3-flash-preview',
-                        contents: "Crea un evento misterioso espacial breve. Efecto: POINTS o MOVE. Valor entre -2 y 3. Español.",
-                        config: {
-                            responseMimeType: "application/json",
-                            responseSchema: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    title: { type: Type.STRING },
-                                    description: { type: Type.STRING },
-                                    effectType: { type: Type.STRING },
-                                    value: { type: Type.NUMBER },
-                                },
-                                required: ["title", "description", "effectType", "value"],
-                            },
-                        },
-                    });
-                    return JSON.parse(res.text.trim());
-                } catch {
-                    return { title: "Agujero de Gusano", description: "¡Atajo temporal!", effectType: "MOVE", value: 3 };
-                }
+                const prompt = `Crea un evento misterioso espacial breve. Formato JSON: {"title": "...", "description": "...", "effectType": "POINTS|MOVE", "value": -2 a 3}`;
+                const res = await this.call(prompt, { responseMimeType: "application/json" });
+                try { return JSON.parse(res); }
+                catch { return { title: "Agujero de Gusano", description: "¡Atajo temporal!", effectType: "MOVE", value: 3 }; }
             },
+
             async fetchRiddle() {
-                try {
-                    const res = await ai.models.generateContent({
-                        model: 'gemini-3-flash-preview',
-                        contents: "Genera un acertijo de lógica simple. Respuesta de una palabra. Español.",
-                        config: {
-                            responseMimeType: "application/json",
-                            responseSchema: {
-                                type: Type.OBJECT,
-                                properties: { riddle: { type: Type.STRING }, answer: { type: Type.STRING } },
-                                required: ["riddle", "answer"],
-                            },
-                        },
-                    });
-                    return JSON.parse(res.text.trim());
-                } catch { return { riddle: "Vuelo sin alas, lloro sin ojos. ¿Qué soy?", answer: "Nube" }; }
+                const prompt = `Genera un acertijo de lógica simple. Respuesta de una palabra. Formato JSON: {"riddle": "...", "answer": "..."}`;
+                const res = await this.call(prompt, { responseMimeType: "application/json" });
+                try { return JSON.parse(res); }
+                catch { return { riddle: "Vuelo sin alas, lloro sin ojos. ¿Qué soy?", answer: "Nube" }; }
             }
         };
 
@@ -206,6 +172,7 @@
                 primary: "bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/20",
                 secondary: "bg-slate-700 hover:bg-slate-600 text-slate-100",
                 danger: "bg-rose-600 hover:bg-rose-500 text-white",
+                ghost: "bg-transparent hover:bg-slate-800 text-slate-300",
             };
             return (
                 <button
@@ -235,20 +202,19 @@
             );
         };
 
-        // --- CHALLENGE COMPONENTS ---
+        // --- CHALLENGES ---
         const MotorChallenge = ({ onComplete }) => {
             const [errors, setErrors] = useState(0);
             const [status, setStatus] = useState('IDLE');
             const handleTouch = () => { if (status === 'PLAYING') setErrors(e => e + 1); };
             return (
-                <Card className="text-center space-y-6 bg-slate-900">
+                <Card className="text-center space-y-6">
                     <h2 className="text-3xl font-black italic">⚡ PULSO GALÁCTICO</h2>
-                    <p className="text-slate-400">Cruza sin tocar los bordes.</p>
                     <div className="relative h-64 bg-black/50 rounded-2xl cursor-crosshair border border-white/10 overflow-hidden">
                         <svg className="w-full h-full" viewBox="0 0 400 200">
                             <path d="M 20 100 C 100 0, 150 200, 250 50 S 380 150, 380 100" fill="none" stroke="#1e293b" strokeWidth="30" strokeLinecap="round" />
                             <path d="M 20 100 C 100 0, 150 200, 250 50 S 380 150, 380 100" fill="none" stroke="#f59e0b" strokeWidth="4" strokeLinecap="round" onMouseEnter={handleTouch} />
-                            <circle cx="20" cy="100" r="15" fill="#10b981" className="cursor-pointer" onMouseDown={() => setStatus('PLAYING')} />
+                            <circle cx="20" cy="100" r="15" fill="#10b981" onMouseDown={() => setStatus('PLAYING')} />
                             <circle cx="380" cy="100" r="15" fill="#3b82f6" onMouseEnter={() => { if (status === 'PLAYING') onComplete(errors === 0 ? 3 : 1); }} />
                         </svg>
                     </div>
@@ -292,56 +258,19 @@
 
             return (
                 <Card className="text-center space-y-6">
-                    <h2 className="text-3xl font-black italic">👁️ MEMORIA CUÁNTICA</h2>
-                    <div className="grid grid-cols-2 gap-4 max-w-[240px] mx-auto">
+                    <h2 className="text-3xl font-black italic text-indigo-400">👁️ MEMORIA CUÁNTICA</h2>
+                    <div className="grid grid-cols-2 gap-4 max-w-[200px] mx-auto">
                         {colors.map((c, i) => (
-                            <div key={i} onClick={() => handlePress(i)} className={`w-24 h-24 rounded-2xl transition-all ${active === i ? 'brightness-150 scale-105 shadow-xl' : 'opacity-70'} ${c}`} />
+                            <div key={i} onClick={() => handlePress(i)} className={`w-20 h-20 rounded-2xl transition-all ${active === i ? 'brightness-150 scale-105' : 'opacity-70'} ${c}`} />
                         ))}
                     </div>
-                    {state === 'START' && <Button onClick={start}>INICIAR</Button>}
+                    {state === 'START' && <Button onClick={start}>EMPEZAR</Button>}
                     <div className="font-bold">NIVEL: {sequence.length} / 4</div>
                 </Card>
             );
         };
 
-        const LogicChallenge = ({ onComplete }) => {
-            const [data, setData] = useState(null);
-            const [input, setInput] = useState('');
-            useEffect(() => { gemini.fetchRiddle().then(setData); }, []);
-            if (!data) return <div className="text-center animate-pulse">GENERANDO ACERTIJO...</div>;
-            return (
-                <Card className="text-center space-y-6">
-                    <h2 className="text-3xl font-black italic">🧠 LÓGICA INTERESTELAR</h2>
-                    <p className="text-xl italic text-indigo-200">"{data.riddle}"</p>
-                    <input value={input} onChange={e => setInput(e.target.value)} className="w-full bg-slate-900 border-2 border-slate-700 rounded-xl p-4 text-center outline-none focus:border-indigo-500" placeholder="Respuesta..." />
-                    <Button onClick={() => { if(input.toLowerCase().trim() === data.answer.toLowerCase().trim()) onComplete(0); }} className="w-full">VERIFICAR</Button>
-                </Card>
-            );
-        };
-
-        const CreativityChallenge = ({ onComplete }) => {
-            const canvasRef = useRef(null);
-            const [isDrawing, setIsDrawing] = useState(false);
-            const start = (e) => { setIsDrawing(true); draw(e); };
-            const draw = (e) => {
-                if (!isDrawing) return;
-                const ctx = canvasRef.current.getContext('2d');
-                const rect = canvasRef.current.getBoundingClientRect();
-                const x = (e.clientX || e.touches?.[0].clientX) - rect.left;
-                const y = (e.clientY || e.touches?.[0].clientY) - rect.top;
-                ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y);
-            };
-            return (
-                <Card className="text-center space-y-6">
-                    <h2 className="text-3xl font-black italic">🎨 CREATIVIDAD COSMOS</h2>
-                    <p>Dibuja un "Agujero Negro"</p>
-                    <canvas ref={canvasRef} width={400} height={300} onMouseDown={start} onMouseMove={draw} onMouseUp={() => { setIsDrawing(false); canvasRef.current.getContext('2d').beginPath(); }} onTouchStart={start} onTouchMove={draw} className="w-full bg-black rounded-xl border border-white/10 touch-none" />
-                    <Button onClick={() => onComplete(0)} className="w-full">LISTO</Button>
-                </Card>
-            );
-        };
-
-        // --- MAIN APP ---
+        // --- APP PRINCIPAL ---
         const App = () => {
             const [phase, setPhase] = useState('SETUP');
             const [players, setPlayers] = useState([]);
@@ -354,6 +283,7 @@
             const [aiCommentary, setAiCommentary] = useState('');
             const [particles, setParticles] = useState([]);
             const [challenge, setChallenge] = useState(null);
+            const [isPaused, setIsPaused] = useState(false);
             const [savedGames, setSavedGames] = useState([]);
 
             const currentPlayer = players[currentPlayerIndex];
@@ -370,18 +300,19 @@
             const spawnJuice = (text, color) => {
                 const id = Date.now();
                 setParticles(p => [...p, { id, text, color }]);
-                setTimeout(() => setParticles(p => p.filter(x => x.id !== id)), 2000);
+                setTimeout(() => setParticles(p => p.filter(x => x.id !== id)), 2500);
             };
 
             const saveGame = () => {
                 const id = Date.now();
                 localStorage.setItem(`${SAVE_KEY_PREFIX}${id}`, JSON.stringify({ id, date: new Date().toLocaleString(), players, currentPlayerIndex }));
-                spawnJuice("GUARDADO", "#10b981");
+                spawnJuice("MISIÓN GUARDADA", "#10b981");
+                setIsPaused(false);
             };
 
-            const handleSetup = (count, names, avatars) => {
+            const setupGame = (count, names, selectedAvatars) => {
                 const newPlayers = Array.from({ length: count }, (_, i) => ({
-                    id: i, name: names[i] || `Explorador ${i+1}`, avatar: avatars[i], color: PLAYER_COLORS[i],
+                    id: i, name: names[i] || `Explorador ${i+1}`, avatar: selectedAvatars[i], color: PLAYER_COLORS[i],
                     currentTileIndex: 0, zonePoints: 0, conqueredZones: [], inventory: []
                 }));
                 setPlayers(newPlayers);
@@ -394,30 +325,31 @@
                 setDiceResult(roll);
                 const comment = await gemini.fetchCommentary(currentPlayer.name, roll);
                 setAiCommentary(comment);
-                setTimeout(() => movePlayer(roll), 1000);
+                setTimeout(() => startMovement(roll), 1200);
             };
 
-            const movePlayer = (steps) => {
-                let moved = 0;
+            const startMovement = (steps) => {
+                let currentSteps = 0;
                 const interval = setInterval(() => {
-                    setPlayers(prev => {
-                        const updated = [...prev];
-                        updated[currentPlayerIndex].currentTileIndex = (updated[currentPlayerIndex].currentTileIndex + 1) % TOTAL_TILES;
-                        return updated;
-                    });
-                    moved++;
-                    if (moved >= steps) {
+                    if (currentSteps < steps) {
+                        setPlayers(prev => {
+                            const updated = [...prev];
+                            updated[currentPlayerIndex].currentTileIndex = (updated[currentPlayerIndex].currentTileIndex + 1) % TOTAL_TILES;
+                            return updated;
+                        });
+                        currentSteps++;
+                    } else {
                         clearInterval(interval);
                         handleLanding();
                     }
-                }, 200);
+                }, 250);
             };
 
             const handleLanding = async () => {
                 const tile = BOARD_TILES[players[currentPlayerIndex].currentTileIndex];
                 if (tile.type === TileType.SUBJECT) {
                     setLoading(true);
-                    const q = await gemini.fetchQuestion(SUBJECTS[Math.floor(Math.random()*SUBJECTS.length)]);
+                    const q = await gemini.fetchQuestion(SUBJECTS[Math.floor(Math.random() * SUBJECTS.length)]);
                     setActiveQuestion(q);
                     setPhase('QUESTION');
                     setLoading(false);
@@ -430,9 +362,9 @@
                 } else if (tile.type === TileType.BONUS) {
                     spawnJuice("+1 PTO", "#f59e0b");
                     updatePlayer({ zonePoints: currentPlayer.zonePoints + 1 });
-                    nextTurn();
+                    setTimeout(nextTurn, 1000);
                 } else {
-                    nextTurn();
+                    setTimeout(nextTurn, 1000);
                 }
             };
 
@@ -455,9 +387,9 @@
             const checkAnswer = async (input) => {
                 const isCorrect = input.toLowerCase().trim() === activeQuestion.answer.toLowerCase().trim();
                 if (isCorrect) {
-                    spawnJuice("+2 PTS", "#4f46e5");
+                    spawnJuice("+2 PUNTOS", "#4f46e5");
                     updatePlayer({ zonePoints: currentPlayer.zonePoints + 2 });
-                    setFeedback({ isCorrect: true, explanation: "¡Misión cumplida!", answer: activeQuestion.answer });
+                    setFeedback({ isCorrect: true, explanation: "¡Excelente deducción!", answer: activeQuestion.answer });
                 } else {
                     setLoading(true);
                     const expl = await gemini.fetchExplanation(activeQuestion.question, activeQuestion.answer);
@@ -467,84 +399,70 @@
                 setActiveQuestion(null);
             };
 
-            const conquerZone = (zone) => {
-                if (currentPlayer.zonePoints >= ZONE_COSTS[zone] && !currentPlayer.conqueredZones.includes(zone)) {
-                    setChallenge(zone);
-                }
-            };
-
-            const finishChallenge = (points = 0) => {
-                const updatedZones = [...currentPlayer.conqueredZones, challenge];
-                updatePlayer({ conqueredZones: updatedZones, zonePoints: currentPlayer.zonePoints + points });
-                if (updatedZones.length >= 4) setPhase('WIN');
+            const finishChallenge = (pts = 0) => {
+                const newZones = [...currentPlayer.conqueredZones, challenge];
+                updatePlayer({ conqueredZones: newZones, zonePoints: currentPlayer.zonePoints + pts });
+                if (newZones.length >= 4) setPhase('WIN');
                 else nextTurn();
             };
 
             if (phase === 'SETUP') return (
-                <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-slate-950 overflow-y-auto">
-                    <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-rose-500 mb-8">ZONE DOMINATION</h1>
+                <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-slate-950">
+                    <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 via-purple-500 to-rose-500 mb-8 drop-shadow-2xl">ZONE DOMINATION</h1>
                     <div className="grid md:grid-cols-2 gap-8 w-full max-w-6xl">
-                        <Card className="space-y-6">
-                            <h2 className="text-2xl font-bold">NUEVA MISIÓN</h2>
-                            <SetupForm onComplete={handleSetup} />
-                        </Card>
-                        <Card className="space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar">
-                            <h2 className="text-2xl font-bold">MISIONES GUARDADAS</h2>
-                            {savedGames.length === 0 ? <p className="text-slate-500 italic">No hay registros...</p> : savedGames.map(g => (
-                                <div key={g.id} onClick={() => { setPlayers(g.players); setCurrentPlayerIndex(g.currentPlayerIndex); setPhase('BOARD'); }} className="p-4 bg-slate-800 rounded-xl cursor-pointer hover:bg-indigo-900/30 transition-all border border-white/5">
-                                    <p className="text-indigo-400 text-xs font-bold">{g.date}</p>
-                                    <div className="flex gap-2 mt-2">{g.players.map(p => <span key={p.id}>{p.avatar} {p.name}</span>)}</div>
-                                </div>
-                            ))}
+                        <SetupScreen onComplete={setupGame} />
+                        <Card className="flex flex-col h-[500px]">
+                            <h2 className="text-xl font-black mb-4 flex items-center gap-2">💾 MISIONES ARCHIVADAS</h2>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3">
+                                {savedGames.length === 0 ? <p className="text-slate-500 italic text-center py-20">No hay misiones guardadas.</p> : savedGames.map(g => (
+                                    <div key={g.id} onClick={() => { setPlayers(g.players); setCurrentPlayerIndex(g.currentPlayerIndex); setPhase('BOARD'); }} className="p-4 bg-slate-800/40 rounded-xl cursor-pointer hover:bg-indigo-600/20 transition-all border border-white/5">
+                                        <p className="text-indigo-400 text-[10px] font-black">{g.date}</p>
+                                        <div className="flex gap-2 mt-2">{g.players.map(p => <span key={p.id} className="text-xs bg-black/30 px-2 py-1 rounded-lg">{p.avatar} {p.name}</span>)}</div>
+                                    </div>
+                                ))}
+                            </div>
                         </Card>
                     </div>
                 </div>
             );
 
             return (
-                <div className="min-h-screen bg-slate-950 flex flex-col overflow-hidden relative">
-                    {/* Background Glow */}
-                    <div className="absolute inset-0 z-0 opacity-20 pointer-events-none" style={{ background: `radial-gradient(circle at center, ${currentPlayer?.color} 0%, transparent 70%)` }} />
+                <div className="min-h-screen bg-slate-950 flex flex-col relative overflow-hidden">
+                    <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ background: `radial-gradient(circle at center, ${currentPlayer?.color} 0%, transparent 70%)` }} />
                     
-                    {/* Particles */}
                     <div className="fixed inset-0 pointer-events-none z-[200]">
                         {particles.map(p => (
-                            <div key={p.id} className="absolute left-1/2 top-1/2 text-5xl font-black animate-float-juice" style={{ color: p.color }}>{p.text}</div>
+                            <div key={p.id} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-4xl font-black animate-juice shadow-xl" style={{ color: p.color }}>{p.text}</div>
                         ))}
                     </div>
 
-                    {/* HUD */}
-                    <header className="p-4 bg-slate-900/80 backdrop-blur-xl border-b border-white/10 flex justify-between items-center z-50">
+                    <header className="p-3 md:p-4 bg-slate-900/90 backdrop-blur-3xl border-b border-white/10 flex justify-between items-center z-50 sticky top-0 shadow-2xl">
                         <div className="flex items-center gap-4">
-                            <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-4xl border-2 border-white/20 shadow-inner relative group" style={{ backgroundColor: currentPlayer.color }}>
-                                {currentPlayer.avatar}
+                            <button onClick={() => setIsPaused(true)} className="w-10 h-10 md:w-12 md:h-12 bg-slate-800 rounded-xl flex items-center justify-center text-xl hover:bg-slate-700 transition-all">⏸️</button>
+                            <div className="relative">
+                                <div className="w-12 h-12 md:w-16 md:h-16 rounded-2xl flex items-center justify-center text-3xl md:text-4xl border-2 border-white/20 shadow-inner" style={{ backgroundColor: currentPlayer.color }}>{currentPlayer.avatar}</div>
                                 {aiCommentary && (
-                                    <div className="absolute top-0 left-full ml-4 w-48 bg-indigo-950 p-3 rounded-2xl border border-indigo-400 text-xs italic animate-in fade-in slide-in-from-left">
+                                    <div className="absolute top-0 left-full ml-4 w-40 md:w-56 bg-indigo-950 p-3 rounded-2xl border border-indigo-400 text-[10px] md:text-xs italic animate-in fade-in slide-in-from-left">
                                         "{aiCommentary}"
                                     </div>
                                 )}
                             </div>
                             <div>
-                                <h2 className="text-xl font-black">{currentPlayer.name}</h2>
-                                <p className="text-indigo-400 font-bold">PTS: {currentPlayer.zonePoints}</p>
+                                <h2 className="text-lg font-black leading-none mb-1">{currentPlayer.name}</h2>
+                                <p className="text-indigo-400 font-black text-xs">PTS: {currentPlayer.zonePoints}</p>
                             </div>
                         </div>
-                        <div className="flex gap-2">
-                             <Button onClick={saveGame} variant="secondary" className="w-12 h-12 p-0 text-xl">💾</Button>
+                        <div className="flex gap-1 md:gap-2">
                              {Object.values(ZoneType).map(z => (
-                                 <div key={z} className={`w-10 h-10 rounded-lg flex items-center justify-center border-2 transition-all ${currentPlayer.conqueredZones.includes(z) ? 'bg-emerald-500/20 border-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-slate-800 border-slate-700 opacity-20'}`}>
-                                    {z === ZoneType.CRITICAL_THINKING && '🧠'}
-                                    {z === ZoneType.MEMORY && '👁️'}
-                                    {z === ZoneType.CREATIVITY && '🎨'}
-                                    {z === ZoneType.MOTOR && '⚡'}
+                                 <div key={z} className={`w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center border-2 transition-all ${currentPlayer.conqueredZones.includes(z) ? 'bg-emerald-500/20 border-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-slate-800 border-slate-700 opacity-20'}`}>
+                                    <span className="text-xs md:text-lg">{z === ZoneType.CRITICAL_THINKING && '🧠'}{z === ZoneType.MEMORY && '👁️'}{z === ZoneType.CREATIVITY && '🎨'}{z === ZoneType.MOTOR && '⚡'}</span>
                                  </div>
                              ))}
                         </div>
                     </header>
 
-                    {/* BOARD */}
-                    <main className="flex-1 flex flex-col items-center justify-center perspective-1000 p-4">
-                        <div className="relative grid grid-cols-13 grid-rows-13 gap-1 w-full max-w-4xl aspect-square board-container bg-slate-900/50 p-4 rounded-[3rem] border-4 border-white/5 shadow-2xl">
+                    <main className="flex-1 flex flex-col items-center justify-center perspective-1000 p-2 overflow-hidden">
+                        <div className="relative grid grid-cols-13 grid-rows-13 gap-0.5 md:gap-1.5 w-full max-w-4xl aspect-square bg-slate-900/50 p-2 md:p-4 rounded-[2rem] md:rounded-[4rem] border-4 border-white/10 shadow-2xl transition-transform duration-1000" style={{ transform: 'rotateX(15deg)' }}>
                              {BOARD_TILES.map((t, i) => {
                                  let x = 0, y = 0;
                                  if (i < 13) { x = i; y = 0; }
@@ -553,80 +471,86 @@
                                  else { x = 0; y = 48 - i; }
                                  const isCurrent = players.some(p => p.currentTileIndex === i && p.id === currentPlayer.id);
                                  return (
-                                     <div key={i} style={{ gridColumnStart: x+1, gridRowStart: y+1 }} className={`relative border rounded-lg flex items-center justify-center font-black text-xs transition-all ${t.type === TileType.SUBJECT ? 'bg-indigo-600/10 border-indigo-500/30' : t.type === TileType.MYSTERY ? 'bg-purple-600/20 border-purple-400/30' : t.type === TileType.BONUS ? 'bg-amber-500/10 border-amber-500/30' : 'bg-slate-800/20 border-white/5'} ${isCurrent ? 'ring-2 ring-white bg-white/10 z-10' : ''}`}>
+                                     <div key={i} style={{ gridColumnStart: x+1, gridRowStart: y+1 }} className={`relative border rounded flex items-center justify-center font-black text-[8px] md:text-xs transition-all ${t.type === TileType.SUBJECT ? 'bg-indigo-600/10 border-indigo-500/30' : t.type === TileType.MYSTERY ? 'bg-purple-600/20 border-purple-400/30' : t.type === TileType.BONUS ? 'bg-amber-500/10 border-amber-500/30' : 'bg-slate-800/20 border-white/5'} ${isCurrent ? 'ring-2 ring-white bg-white/10 z-10' : ''}`}>
                                          {t.label}
                                          {players.map(p => p.currentTileIndex === i && (
-                                             <div key={p.id} className={`absolute text-2xl transition-all ${p.id === currentPlayer.id ? 'animate-bounce z-20 scale-125' : 'opacity-40'}`} style={{ filter: `drop-shadow(0 0 8px ${p.color})` }}>{p.avatar}</div>
+                                             <div key={p.id} className={`absolute text-xl md:text-3xl transition-all ${p.id === currentPlayer.id ? 'animate-bounce z-20 scale-125' : 'opacity-40'}`} style={{ filter: `drop-shadow(0 0 8px ${p.color})` }}>{p.avatar}</div>
                                          ))}
                                      </div>
                                  );
                              })}
-                             
-                             <div className="col-start-5 col-end-10 row-start-5 row-end-10 flex flex-col items-center justify-center gap-4 glass-card rounded-[2rem]">
-                                 {phase === 'DICE_ROLLING' ? <div className="text-8xl animate-spin">🎲</div> : phase === 'BOARD' ? (
-                                     <button onClick={rollDice} className="w-32 h-32 rounded-full bg-indigo-600 border-8 border-indigo-400 text-3xl font-black shadow-2xl hover:scale-110 active:scale-95 transition-all">TIRAR</button>
-                                 ) : <div className="text-2xl font-black animate-pulse">MISIÓN EN CURSO...</div>}
+                             <div className="col-start-5 col-end-10 row-start-5 row-end-10 flex flex-col items-center justify-center gap-4 glass-card rounded-[2rem] md:rounded-[4rem]">
+                                 {phase === 'DICE_ROLLING' ? <div className="text-6xl md:text-9xl animate-spin">🎲</div> : phase === 'BOARD' ? (
+                                     <button onClick={rollDice} className="w-24 h-24 md:w-40 md:h-40 rounded-full bg-indigo-600 border-[8px] md:border-[12px] border-indigo-400 text-xl md:text-4xl font-black shadow-2xl hover:scale-110 active:scale-95 transition-all text-white">TIRAR</button>
+                                 ) : <div className="text-lg md:text-3xl font-black animate-pulse uppercase tracking-widest text-white">Sincronizando...</div>}
                              </div>
                         </div>
                     </main>
 
-                    {/* FOOTER */}
-                    <footer className="p-4 bg-slate-900 border-t border-white/10 flex justify-center z-50">
-                         <Button onClick={() => setPhase('CONQUEST')} className="w-full max-w-lg text-2xl py-4 bg-gradient-to-r from-slate-800 to-indigo-900">MAPA DE CONQUISTA</Button>
+                    <footer className="p-4 bg-slate-900/95 border-t border-white/10 flex justify-center z-50">
+                         <Button onClick={() => setPhase('CONQUEST')} className="w-full max-w-lg text-xl md:text-2xl py-4 md:py-6 bg-gradient-to-r from-slate-800 to-indigo-900 rounded-2xl">🗺️ MAPA DE CONQUISTA</Button>
                     </footer>
 
-                    {/* MODALS */}
+                    <Modal isOpen={isPaused}>
+                        <Card className="text-center space-y-6 p-10 bg-slate-900 border-indigo-500">
+                             <h2 className="text-4xl font-black text-indigo-400 italic">PAUSA</h2>
+                             <div className="space-y-4">
+                                <Button onClick={() => setIsPaused(false)} className="w-full">CONTINUAR</Button>
+                                <Button onClick={saveGame} variant="secondary" className="w-full">GUARDAR MISIÓN</Button>
+                                <Button onClick={() => window.location.reload()} variant="danger" className="w-full">SALIR AL INICIO</Button>
+                             </div>
+                        </Card>
+                    </Modal>
+
                     <Modal isOpen={phase === 'QUESTION'}>
-                        <Card className="text-center space-y-8 p-10">
-                            <div className="bg-indigo-600 text-white px-4 py-1 rounded-full text-xs font-black inline-block">{activeQuestion?.subject}</div>
-                            <h2 className="text-3xl font-black italic">"{activeQuestion?.question}"</h2>
-                            <QuestionInput onAnswer={checkAnswer} />
+                        <Card className="text-center space-y-8 p-10 border-indigo-500/50">
+                            <div className="bg-indigo-600 text-white px-4 py-1 rounded-full text-[10px] font-black inline-block uppercase">{activeQuestion?.subject}</div>
+                            <h2 className="text-3xl font-black italic leading-tight">"{activeQuestion?.question}"</h2>
+                            <div className="space-y-4">
+                                <input id="qinput" autoFocus className="w-full bg-slate-950 border-2 border-slate-700 rounded-2xl p-6 text-center text-3xl outline-none focus:border-indigo-500 shadow-inner text-white" placeholder="..." onKeyDown={e => e.key === 'Enter' && checkAnswer(e.target.value)} />
+                                <Button onClick={() => checkAnswer(document.getElementById('qinput').value)} className="w-full py-6 text-2xl font-black">TRANSMITIR</Button>
+                            </div>
                         </Card>
                     </Modal>
 
                     <Modal isOpen={!!feedback}>
-                        <Card className={`text-center space-y-6 border-4 ${feedback?.isCorrect ? 'border-emerald-500 bg-emerald-950/90' : 'border-rose-500 bg-rose-950/90'}`}>
-                            <div className="text-6xl">{feedback?.isCorrect ? '✨' : '📡'}</div>
-                            <h2 className="text-3xl font-black italic">{feedback?.isCorrect ? '¡EXITO!' : 'FALLO EN TRANSMISIÓN'}</h2>
-                            <div className="bg-black/30 p-6 rounded-2xl">
-                                <p className="text-xs text-slate-400 font-bold uppercase mb-1">Dato de Base:</p>
-                                <p className="text-2xl font-black">{feedback?.answer}</p>
+                        <Card className={`text-center space-y-6 border-4 p-10 rounded-[3rem] ${feedback?.isCorrect ? 'border-emerald-500 bg-emerald-950/90' : 'border-rose-500 bg-rose-950/90'}`}>
+                            <div className="text-6xl">{feedback?.isCorrect ? '✨' : '📚'}</div>
+                            <h2 className="text-3xl font-black italic">{feedback?.isCorrect ? '¡ÉXITO!' : '¡DATA ADQUIRIDA!'}</h2>
+                            <div className="bg-black/30 p-6 rounded-2xl border border-white/5">
+                                <p className="text-[10px] text-slate-400 font-black uppercase mb-1">Verdad Galáctica:</p>
+                                <p className="text-2xl font-black text-white">{feedback?.answer}</p>
                             </div>
-                            <p className="italic text-sm opacity-80">{feedback?.explanation}</p>
-                            <Button onClick={nextTurn} variant={feedback?.isCorrect ? 'primary' : 'danger'} className="w-full">CONTINUAR</Button>
+                            <p className="italic text-sm text-white opacity-90">{feedback?.explanation}</p>
+                            <Button onClick={nextTurn} variant={feedback?.isCorrect ? 'primary' : 'danger'} className="w-full py-6 text-2xl font-black">SIGUIENTE</Button>
                         </Card>
                     </Modal>
 
                     <Modal isOpen={phase === 'MYSTERY'}>
-                         <Card className="text-center space-y-6 bg-purple-900/90 border-purple-400 p-10">
+                         <Card className="text-center space-y-6 bg-purple-900/90 border-purple-400 p-10 rounded-[3rem]">
                             <div className="text-7xl animate-bounce">🌀</div>
-                            <h2 className="text-3xl font-black italic">{activeMystery?.title}</h2>
-                            <p className="text-lg">{activeMystery?.description}</p>
+                            <h2 className="text-3xl font-black italic text-white">{activeMystery?.title}</h2>
+                            <p className="text-lg text-purple-100">{activeMystery?.description}</p>
                             <Button onClick={() => {
                                 if(activeMystery.effectType === 'MOVE') updatePlayer({ currentTileIndex: (currentPlayer.currentTileIndex + activeMystery.value + TOTAL_TILES) % TOTAL_TILES });
                                 else updatePlayer({ zonePoints: Math.max(0, currentPlayer.zonePoints + activeMystery.value) });
                                 setPhase('BOARD'); nextTurn();
-                            }} className="w-full bg-white text-purple-900">PROCESAR</Button>
+                            }} className="w-full bg-white text-purple-900 py-6 text-2xl font-black">PROCESAR</Button>
                          </Card>
                     </Modal>
 
                     <Modal isOpen={phase === 'CONQUEST'}>
-                        <Card className="space-y-6 p-8 relative">
-                             <button onClick={() => setPhase('BOARD')} className="absolute top-4 right-4 text-3xl">×</button>
-                             <h2 className="text-3xl font-black italic text-indigo-400">CENTRO DE CONQUISTA</h2>
+                        <Card className="space-y-6 p-8 relative border-slate-700 bg-slate-900/98 rounded-[3rem]">
+                             <button onClick={() => setPhase('BOARD')} className="absolute top-6 right-6 text-4xl text-slate-500 hover:text-white transition-all">×</button>
+                             <h2 className="text-3xl font-black italic text-indigo-400 text-center uppercase tracking-widest">Centro de Conquista</h2>
                              <div className="grid grid-cols-2 gap-4">
                                  {Object.values(ZoneType).map(z => {
                                      const done = currentPlayer.conqueredZones.includes(z);
                                      const can = currentPlayer.zonePoints >= ZONE_COSTS[z];
                                      return (
-                                         <div key={z} onClick={() => !done && can && conquerZone(z)} className={`p-6 rounded-3xl border-2 transition-all flex flex-col items-center gap-2 ${done ? 'bg-emerald-500/10 border-emerald-500 opacity-100' : can ? 'bg-indigo-600/10 border-indigo-500 cursor-pointer hover:scale-105 active:scale-95' : 'bg-slate-800 border-slate-700 opacity-20 grayscale'}`}>
-                                             <div className="text-4xl">
-                                                 {z === ZoneType.CRITICAL_THINKING && '🧠'}
-                                                 {z === ZoneType.MEMORY && '👁️'}
-                                                 {z === ZoneType.CREATIVITY && '🎨'}
-                                                 {z === ZoneType.MOTOR && '⚡'}
-                                             </div>
-                                             <div className="font-black">{done ? 'CONQUISTADO' : `${ZONE_COSTS[z]} PTS`}</div>
+                                         <div key={z} onClick={() => !done && can && setChallenge(z)} className={`p-6 rounded-3xl border-2 transition-all flex flex-col items-center gap-3 ${done ? 'bg-emerald-500/10 border-emerald-500 opacity-100' : can ? 'bg-indigo-600/10 border-indigo-500 cursor-pointer hover:scale-105 active:scale-95' : 'bg-slate-800 border-slate-700 opacity-20 grayscale'}`}>
+                                             <div className="text-5xl">{z === ZoneType.CRITICAL_THINKING && '🧠'}{z === ZoneType.MEMORY && '👁️'}{z === ZoneType.CREATIVITY && '🎨'}{z === ZoneType.MOTOR && '⚡'}</div>
+                                             <div className="font-black text-white">{done ? 'CONQUISTADO' : `${ZONE_COSTS[z]} PTS`}</div>
                                              <div className="text-[10px] uppercase font-bold text-slate-400">{z}</div>
                                          </div>
                                      );
@@ -638,67 +562,97 @@
                     <Modal isOpen={!!challenge}>
                         <div className="w-full max-w-lg">
                             {challenge === ZoneType.MOTOR && <MotorChallenge onComplete={finishChallenge} />}
-                            {challenge === ZoneType.MEMORY && <MemoryChallenge onComplete={finishChallenge} />}
-                            {challenge === ZoneType.CRITICAL_THINKING && <LogicChallenge onComplete={finishChallenge} />}
-                            {challenge === ZoneType.CREATIVITY && <CreativityChallenge onComplete={finishChallenge} />}
+                            {challenge === ZoneType.MEMORY && <MemoryChallenge onComplete={() => finishChallenge(0)} />}
+                            {challenge === ZoneType.CRITICAL_THINKING && <LogicChallenge onComplete={() => finishChallenge(0)} />}
+                            {challenge === ZoneType.CREATIVITY && <CreativityChallenge onComplete={() => finishChallenge(0)} />}
                         </div>
                     </Modal>
 
                     {loading && (
-                        <div className="fixed inset-0 z-[300] bg-slate-950/90 flex flex-col items-center justify-center animate-pulse">
+                        <div className="fixed inset-0 z-[300] bg-slate-950/95 flex flex-col items-center justify-center animate-pulse">
                             <div className="w-24 h-24 border-8 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4" />
-                            <p className="text-2xl font-black tracking-widest">SINCRONIZANDO...</p>
+                            <p className="text-2xl font-black tracking-[0.3em] text-white">SINCRONIZANDO...</p>
                         </div>
                     )}
 
                     {phase === 'WIN' && (
-                        <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col items-center justify-center p-8">
-                            <div className="text-[12rem] mb-4 animate-bounce">{currentPlayer.avatar}</div>
-                            <h1 className="text-6xl md:text-8xl font-black italic mb-2" style={{ color: currentPlayer.color }}>¡{currentPlayer.name} GANA!</h1>
-                            <p className="text-2xl text-slate-400 mb-8">Has dominado todas las zonas de la galaxia.</p>
-                            <Button onClick={() => window.location.reload()} className="px-12 py-6 text-3xl">NUEVA MISIÓN</Button>
+                        <div className="fixed inset-0 z-[400] bg-slate-950 flex flex-col items-center justify-center p-8 text-center animate-in zoom-in duration-1000">
+                            <div className="text-[10rem] md:text-[15rem] mb-4 animate-bounce">{currentPlayer.avatar}</div>
+                            <h1 className="text-6xl md:text-9xl font-black italic mb-2 leading-none" style={{ color: currentPlayer.color }}>¡{currentPlayer.name} DOMINA!</h1>
+                            <p className="text-2xl text-slate-400 mb-12">Victoria galáctica total lograda.</p>
+                            <Button onClick={() => window.location.reload()} className="px-16 py-8 text-4xl rounded-full bg-indigo-600 font-black shadow-2xl">NUEVA MISIÓN</Button>
                         </div>
                     )}
                 </div>
             );
         };
 
-        const SetupForm = ({ onComplete }) => {
+        const SetupScreen = ({ onComplete }) => {
             const [count, setCount] = useState(2);
             const [names, setNames] = useState(['Explorador 1', 'Explorador 2', 'Explorador 3', 'Explorador 4']);
-            const [avatars, setAvatars] = useState([]);
+            const [selectedAvatars, setSelectedAvatars] = useState([]);
             return (
-                <div className="space-y-4">
-                    <div className="flex justify-between items-center bg-slate-800 p-3 rounded-2xl">
-                        <span className="font-bold">N° TRIPULANTES:</span>
+                <Card className="space-y-6 border-white/10">
+                    <h2 className="text-2xl font-black text-indigo-400 uppercase tracking-widest">Nueva Misión</h2>
+                    <div className="flex justify-between items-center bg-slate-800/40 p-4 rounded-xl border border-white/5">
+                        <span className="font-bold text-xs">TRIPULACIÓN:</span>
                         <div className="flex gap-2">
-                            {[2, 3, 4].map(n => <button key={n} onClick={() => setCount(n)} className={`w-10 h-10 rounded-lg font-black transition-all ${count === n ? 'bg-indigo-600 border border-white' : 'bg-slate-700 opacity-50'}`}>{n}</button>)}
+                            {[2, 3, 4].map(n => <button key={n} onClick={() => setCount(n)} className={`w-10 h-10 rounded-lg font-black transition-all ${count === n ? 'bg-indigo-600 border border-white scale-110' : 'bg-slate-700 opacity-50'}`}>{n}</button>)}
                         </div>
                     </div>
-                    {Array.from({ length: count }).map((_, i) => (
-                        <div key={i} className="p-4 bg-slate-800/40 rounded-2xl space-y-3">
-                            <input value={names[i]} onChange={e => { const n = [...names]; n[i] = e.target.value; setNames(n); }} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 outline-none focus:border-indigo-500" placeholder={`Nombre Explorador ${i+1}`} />
-                            <div className="flex flex-wrap gap-2 justify-center">
-                                {AVATARS.map(a => <button key={a} onClick={() => { const s = [...avatars]; s[i] = a; setAvatars(s); }} className={`w-10 h-10 rounded-xl text-xl flex items-center justify-center border-2 transition-all ${avatars[i] === a ? 'bg-indigo-600 border-white' : 'bg-slate-900 border-slate-800 opacity-40 hover:opacity-100'}`}>{a}</button>)}
+                    <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+                        {Array.from({ length: count }).map((_, i) => (
+                            <div key={i} className="p-4 bg-slate-800/20 rounded-xl border border-white/5 space-y-3">
+                                <input value={names[i]} onChange={e => { const n = [...names]; n[i] = e.target.value; setNames(n); }} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-white outline-none focus:border-indigo-500" placeholder={`Nombre Explorador ${i+1}`} />
+                                <div className="flex flex-wrap gap-2 justify-center">
+                                    {AVATARS.map(a => <button key={a} onClick={() => { const s = [...selectedAvatars]; s[i] = a; setSelectedAvatars(s); }} className={`w-10 h-10 rounded-xl text-xl flex items-center justify-center border-2 transition-all ${selectedAvatars[i] === a ? 'bg-indigo-600 border-white' : 'bg-slate-900/30 border-slate-800 opacity-40 hover:opacity-100'}`}>{a}</button>)}
+                                </div>
                             </div>
-                        </div>
-                    ))}
-                    <Button disabled={avatars.filter(Boolean).length < count} onClick={() => onComplete(count, names, avatars)} className="w-full py-4 text-xl">DESPEGAR</Button>
-                </div>
+                        ))}
+                    </div>
+                    <Button disabled={selectedAvatars.filter(Boolean).length < count} onClick={() => onComplete(count, names, selectedAvatars)} className="w-full py-5 text-2xl font-black rounded-xl bg-indigo-600">INICIAR MISIÓN</Button>
+                </Card>
             );
         };
 
-        const QuestionInput = ({ onAnswer }) => {
-            const [val, setVal] = useState('');
+        const LogicChallenge = ({ onComplete }) => {
+            const [data, setData] = useState(null);
+            const [input, setInput] = useState('');
+            useEffect(() => { gemini.fetchRiddle().then(setData); }, []);
+            if (!data) return <Card className="text-center animate-pulse py-20 text-xl font-black">GENERANDO ACERTIJO...</Card>;
             return (
-                <div className="space-y-4">
-                    <input autoFocus value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => e.key === 'Enter' && onAnswer(val)} className="w-full bg-slate-950 border-2 border-slate-700 rounded-2xl p-6 text-center text-3xl outline-none focus:border-indigo-500 shadow-inner" placeholder="..." />
-                    <Button onClick={() => onAnswer(val)} className="w-full py-6 text-2xl">TRANSMITIR</Button>
-                </div>
+                <Card className="text-center space-y-6 bg-slate-900 border-indigo-400">
+                    <h2 className="text-3xl font-black italic text-indigo-400">🧠 LÓGICA INTERESTELAR</h2>
+                    <p className="text-2xl italic leading-relaxed text-indigo-100">"{data.riddle}"</p>
+                    <input id="linput" className="w-full bg-slate-950 border-2 border-slate-700 rounded-2xl p-6 text-center text-2xl outline-none focus:border-indigo-500 text-white" placeholder="Respuesta..." onKeyDown={e => e.key === 'Enter' && e.target.value.toLowerCase().trim() === data.answer.toLowerCase().trim() && onComplete(0)} />
+                    <Button onClick={() => { if(document.getElementById('linput').value.toLowerCase().trim() === data.answer.toLowerCase().trim()) onComplete(0); }} className="w-full py-6 text-2xl font-black">VERIFICAR</Button>
+                </Card>
             );
         };
 
-        const root = createRoot(document.getElementById('root'));
+        const CreativityChallenge = ({ onComplete }) => {
+            const canvasRef = useRef(null);
+            const [isDrawing, setIsDrawing] = useState(false);
+            const start = (e) => { setIsDrawing(true); draw(e); };
+            const draw = (e) => {
+                if (!isDrawing) return;
+                const ctx = canvasRef.current.getContext('2d');
+                const rect = canvasRef.current.getBoundingClientRect();
+                const x = (e.clientX || e.touches?.[0].clientX) - rect.left;
+                const y = (e.clientY || e.touches?.[0].clientY) - rect.top;
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y);
+            };
+            return (
+                <Card className="text-center space-y-6 bg-slate-900 border-rose-500">
+                    <h2 className="text-3xl font-black italic text-rose-400">🎨 CREATIVIDAD COSMOS</h2>
+                    <p className="text-slate-400 font-bold uppercase">Dibuja un "Sistema Solar"</p>
+                    <canvas ref={canvasRef} width={400} height={300} onMouseDown={start} onMouseMove={draw} onMouseUp={() => { setIsDrawing(false); canvasRef.current.getContext('2d').beginPath(); }} onTouchStart={start} onTouchMove={draw} className="w-full bg-black rounded-3xl border-2 border-slate-700 touch-none shadow-inner" />
+                    <Button onClick={() => onComplete(0)} className="w-full py-6 text-2xl font-black bg-rose-600">MISION CUMPLIDA</Button>
+                </Card>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
 <script type="module" src="/index.tsx"></script>
